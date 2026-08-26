@@ -2,20 +2,13 @@ import json
 import genlayer.gl as gl
 
 class NewsGuard(gl.Contract):
-    # State variables MUST be class-level in GenLayer IC
     owner = ""
     check_count = "0"
     checks = "{}"
     categories = json.dumps([
-        "politics",
-        "health",
-        "technology",
-        "finance",
-        "sports",
-        "science",
-        "general"
+        "politics", "health", "technology", "finance",
+        "sports", "science", "general"
     ])
-
     VALID_VERDICTS = ["TRUE", "MISLEADING", "FALSE", "UNVERIFIABLE"]
 
     @gl.public.write
@@ -50,28 +43,21 @@ class NewsGuard(gl.Contract):
             "Respond ONLY with valid JSON in this exact format:\n"
             '{"verdict":"TRUE"|"MISLEADING"|"FALSE"|"UNVERIFIABLE","confidence":0.0-1.0,"reasoning":"...","key_evidence":"..."}'
         )
-
         result = gl.nondet.exec_prompt(prompt)
-
         if hasattr(result, "get"):
             result = result.get()
-
         if isinstance(result, dict):
             return result
-
         if isinstance(result, str):
             try:
                 return json.loads(result)
             except Exception:
                 pass
-
-        # Fallback heuristic (only used if LLM fails entirely)
         text = (content + claim).lower()
         if "false" in text or "fake" in text:
             return {"verdict": "FALSE", "confidence": 0.8, "reasoning": "Content contradicts claim", "key_evidence": "Contradiction found"}
         if "misleading" in text:
             return {"verdict": "MISLEADING", "confidence": 0.7, "reasoning": "Partially accurate but out of context", "key_evidence": "Context missing"}
-
         return {"verdict": "TRUE", "confidence": 0.75, "reasoning": "Content supports claim", "key_evidence": "Consistent with sources"}
 
     @gl.public.write
@@ -80,20 +66,16 @@ class NewsGuard(gl.Contract):
         if category not in cats:
             raise ValueError("Invalid category")
 
-        # CRITICAL: Both fetch AND analysis must be inside json_eq
-        # so every validator independently fetches and analyzes the URL.
         def consensus_task():
             content = self._fetch_content(url)
             return self._analyze_news(content, claim, category)
 
         evaluation = gl.eq_principle.json_eq(consensus_task)
 
-        # Validate constrained verdict
         verdict = str(evaluation.get("verdict", "UNVERIFIABLE")).upper().strip()
         if verdict not in self.VALID_VERDICTS:
             verdict = "UNVERIFIABLE"
 
-        # Validate constrained confidence
         confidence = float(evaluation.get("confidence", 0.0))
         if not (0.0 <= confidence <= 1.0):
             confidence = 0.0
@@ -103,7 +85,6 @@ class NewsGuard(gl.Contract):
         self.check_count = str(count)
         check_id = str(count)
 
-        # Fetch content once more for snippet (this is deterministic, just for storage)
         snippet_content = self._fetch_content(url)
 
         c = json.loads(self.checks)
