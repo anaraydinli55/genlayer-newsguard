@@ -2,41 +2,54 @@ import json
 import genlayer.gl as gl
 
 class NewsGuard(gl.Contract):
-    def __init__(self):
-        self.owner = ""
-        self.check_count = "0"
-        self.checks = "{}"
-        self.categories = json.dumps([
-            "politics",
-            "health",
-            "technology",
-            "finance",
-            "sports",
-            "science",
-            "general"
-        ])
+    # State variables MUST be class-level in GenLayer IC
+    owner = ""
+    check_count = "0"
+    checks = "{}"
+    categories = json.dumps([
+        "politics",
+        "health",
+        "technology",
+        "finance",
+        "sports",
+        "science",
+        "general"
+    ])
+
+    VALID_VERDICTS = ["TRUE", "MISLEADING", "FALSE", "UNVERIFIABLE"]
 
     @gl.public.write
     def init(self):
-        self.owner = gl.message.sender_address
+        self.owner = str(gl.message.sender_address)
+
+    @gl.public.view
+    def getOwner(self):
+        return self.owner
 
     def _fetch_content(self, url):
         try:
-            content = gl.nondet.web.render(url)
-            return content[:4000]
+            response = gl.nondet.web.render(url)
+            if hasattr(response, "body"):
+                return response.body.decode("utf-8")[:4000]
+            return str(response)[:4000]
         except Exception:
-            content = gl.nondet.web.get(url)
-            return content[:4000]
+            try:
+                response = gl.nondet.web.get(url)
+                if hasattr(response, "body"):
+                    return response.body.decode("utf-8")[:4000]
+                return str(response)[:4000]
+            except Exception:
+                return ""
 
     def _analyze_news(self, content, claim, category):
-        prompt = """You are an expert fact-checker. Analyze the following webpage content against a specific claim.
-
-CLAIM: """ + claim + """
-CATEGORY: """ + category + """
-WEBPAGE CONTENT: """ + content[:2000] + """
-
-Respond ONLY with valid JSON in this exact format:
-{"verdict":"TRUE"|"MISLEADING"|"FALSE"|"UNVERIFIABLE","confidence":0.0-1.0,"reasoning":"...","key_evidence":"..."}"""
+        prompt = (
+            "You are an expert fact-checker. Analyze the following webpage content against a specific claim.\n\n"
+            "CLAIM: " + claim + "\n"
+            "CATEGORY: " + category + "\n"
+            "WEBPAGE CONTENT: " + content[:2000] + "\n\n"
+            "Respond ONLY with valid JSON in this exact format:\n"
+            '{"verdict":"TRUE"|"MISLEADING"|"FALSE"|"UNVERIFIABLE","confidence":0.0-1.0,"reasoning":"...","key_evidence":"..."}'
+        )
 
         result = gl.nondet.exec_prompt(prompt)
 
@@ -49,9 +62,10 @@ Respond ONLY with valid JSON in this exact format:
         if isinstance(result, str):
             try:
                 return json.loads(result)
-            except:
+            except Exception:
                 pass
 
+        # Fallback heuristic (only used if LLM fails entirely)
         text = (content + claim).lower()
         if "false" in text or "fake" in text:
             return {"verdict": "FALSE", "confidence": 0.8, "reasoning": "Content contradicts claim", "key_evidence": "Contradiction found"}
@@ -66,31 +80,56 @@ Respond ONLY with valid JSON in this exact format:
         if category not in cats:
             raise ValueError("Invalid category")
 
+        # CRITICAL: Both fetch AND analysis must be inside json_eq
+        # so every validator independently fetches and analyzes the URL.
+        def consensus_task():
+            content = self._fetch_content(url)
+            return self._analyze_news(content, claim, category)
+
+        evaluation = gl.eq_principle.json_eq(consensus_task)
+
+        # Validate constrained verdict
+        verdict = str(evaluation.get("verdict", "UNVERIFIABLE")).upper().strip()
+        if verdict not in self.VALID_VERDICTS:
+            verdict = "UNVERIFIABLE"
+
+        # Validate constrained confidence
+        confidence = float(evaluation.get("confidence", 0.0))
+        if not (0.0 <= confidence <= 1.0):
+            confidence = 0.0
+            verdict = "UNVERIFIABLE"
+
         count = int(self.check_count) + 1
         self.check_count = str(count)
         check_id = str(count)
 
-        content = self._fetch_content(url)
-        evaluation = gl.eq_principle.json_eq(
-            lambda: self._analyze_news(content, claim, category)
-        )
+        # Fetch content once more for snippet (this is deterministic, just for storage)
+        snippet_content = self._fetch_content(url)
 
         c = json.loads(self.checks)
         c[check_id] = {
             "id": check_id,
-            "creator": gl.message.sender_address,
+            "creator": str(gl.message.sender_address),
             "url": url,
             "claim": claim,
             "category": category,
-            "content_snippet": content[:500],
-            "verdict": evaluation.get("verdict", "UNVERIFIABLE"),
-            "confidence": str(evaluation.get("confidence", 0)),
-            "reasoning": evaluation.get("reasoning", ""),
-            "key_evidence": evaluation.get("key_evidence", ""),
+            "content_snippet": snippet_content[:500],
+            "verdict": verdict,
+            "confidence": str(confidence),
+            "reasoning": str(evaluation.get("reasoning", "")),
+            "key_evidence": str(evaluation.get("key_evidence", "")),
             "status": "resolved",
-            "created_at": "0"
+            "created_at": str(int(gl.block.timestamp)),
         }
         self.checks = json.dumps(c)
+
+        gl.emit("NewsVerified", {
+            "check_id": check_id,
+            "verdict": verdict,
+            "confidence": str(confidence),
+            "category": category,
+        })
+
         return check_id
 
     @gl.public.view
@@ -119,10 +158,12 @@ Respond ONLY with valid JSON in this exact format:
         true_count = sum(1 for x in c.values() if x["verdict"] == "TRUE")
         false_count = sum(1 for x in c.values() if x["verdict"] == "FALSE")
         misleading_count = sum(1 for x in c.values() if x["verdict"] == "MISLEADING")
+        unverifiable_count = sum(1 for x in c.values() if x["verdict"] == "UNVERIFIABLE")
         return {
             "total_checks": str(total),
             "true": str(true_count),
             "false": str(false_count),
             "misleading": str(misleading_count),
+            "unverifiable": str(unverifiable_count),
             "accuracy": str(round(true_count / total, 2)) if total > 0 else "0"
         }
