@@ -1,0 +1,11 @@
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+deploy.mjs
+deploy_long.mjs
+deploy_poll.mjs
+deploy_fast.mjs
+deploy_final.mjs
+deploy_newsguard.mjs
