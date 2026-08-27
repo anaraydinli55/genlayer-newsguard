@@ -13,3 +13,5 @@ deploy_newsguard.mjs
 # Dependencies
 node_modules/
 package-lock.json
+.vercel
+frontend/.next
