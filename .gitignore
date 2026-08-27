@@ -9,3 +9,7 @@ deploy_poll.mjs
 deploy_fast.mjs
 deploy_final.mjs
 deploy_newsguard.mjs
+
+# Dependencies
+node_modules/
+package-lock.json
