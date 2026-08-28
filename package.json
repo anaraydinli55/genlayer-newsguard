@@ -1,0 +1,25 @@
+{
+  "name": "genlayer-newsguard",
+  "version": "1.0.0",
+  "description": "A reusable GenLayer Intelligent Contract primitive that verifies news claims by fetching webpage content and using LLM consensus to classify claims as TRUE, MISLEADING, FALSE, or UNVERIFIABLE.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anaraydinli55/genlayer-newsguard.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/anaraydinli55/genlayer-newsguard/issues"
+  },
+  "homepage": "https://github.com/anaraydinli55/genlayer-newsguard#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "genlayer-js": "^1.1.8",
+    "viem": "^2.55.19"
+  }
+}
