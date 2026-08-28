@@ -1,5 +1,6 @@
+# { "Depends": "py-genlayer:0.1.0" }
 import json
-import genlayer.gl as gl
+from genlayer import *
 
 # =============================================================================
 # MODULE-LEVEL HELPERS (no self access — safe for nondet blocks)
@@ -109,19 +110,17 @@ class NewsGuard(gl.Contract):
             "general",
         ]
     )
-    initialized: bool = False
     VALID_VERDICTS = ["TRUE", "MISLEADING", "FALSE", "UNVERIFIABLE"]
 
     # -------------------------------------------------------------------------
     # Lifecycle
     # -------------------------------------------------------------------------
-    @gl.public.write
-    def init(self):
-        """One-time initialization. Sets deployer as owner."""
-        if self.initialized:
-            raise ValueError("Already initialized")
-        self.owner = str(gl.get_sender())
-        self.initialized = True
+    def __init__(self):
+        """Constructor — runs once at deploy."""
+        self.owner = str(gl.message.sender_address)
+        self.check_count = "0"
+        self.checks = "{}"
+        self.categories = json.dumps(["politics", "health", "technology", "finance", "sports", "science", "general"])
 
     @gl.public.view
     def getOwner(self) -> str:
@@ -137,9 +136,6 @@ class NewsGuard(gl.Contract):
         Each validator independently fetches the URL and runs the LLM,
         then strict_eq enforces bit-exact consensus on the normalized result.
         """
-        if not self.initialized:
-            raise ValueError("Contract not initialized")
-
         cats = json.loads(self.categories)
         if category not in cats:
             raise ValueError("Invalid category")
@@ -177,7 +173,7 @@ class NewsGuard(gl.Contract):
         c = json.loads(self.checks)
         c[check_id] = {
             "id": check_id,
-            "creator": str(gl.get_sender()),
+            "creator": str(gl.message.sender_address),
             "url": url,
             "claim": claim,
             "category": category,
@@ -187,11 +183,11 @@ class NewsGuard(gl.Contract):
             "reasoning": evaluation["reasoning"],
             "key_evidence": evaluation["key_evidence"],
             "status": "resolved",
-            "created_at": str(int(gl.get_block_timestamp())),
+            "created_at": str(int(gl.block.timestamp)),
         }
         self.checks = json.dumps(c)
 
-        gl.emit_event(
+        gl.emit(
             "NewsVerified",
             {
                 "check_id": check_id,
