@@ -1,4 +1,4 @@
-# { "Depends": "py-genlayer:0.1.0" }
+# { "Depends": "py-genlayer:15qfivjvy80800rh998pcxmd2m8va1wq2qzqhz850n8ggcr4i9q0" }
 import json
 from genlayer import *
 
