@@ -1,6 +1,6 @@
 import { createClient } from "genlayer-js";
 
-export const NEWSGUARD_ADDRESS = "0x4e691dfA2857CB394928166F1158718B1d429257";
+export const NEWSGUARD_ADDRESS = "0xB2047950bbc68E7BdA744a326608cf62053ED371";
 
 const bradbury = {
   id: 1,

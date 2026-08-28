@@ -34,3 +34,8 @@ Deployed on GenLayer Bradbury Testnet.
 ## License
 
 MIT
+
+## Deploy
+- **Network:** GenLayer Bradbury Testnet
+- **Contract Address:** `0xB2047950bbc68E7BdA744a326608cf62053ED371`
+- **Explorer:** https://explorer-bradbury.genlayer.com/address/0xB2047950bbc68E7BdA744a326608cf62053ED371
