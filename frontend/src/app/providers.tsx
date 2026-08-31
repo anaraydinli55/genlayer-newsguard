@@ -4,13 +4,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import { metaMaskWallet, rabbyWallet, walletConnectWallet, coinbaseWallet } from "@rainbow-me/rainbowkit/wallets";
-import { testnetBradbury } from "genlayer-js/chains";
 import { useState } from "react";
+
+const bradbury = {
+  id: 1,
+  name: "GenLayer Testnet",
+  nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc-bradbury.genlayer.com"] } },
+} as const;
 
 const config = getDefaultConfig({
   appName: "NewsGuard",
   projectId: "demo",
-  chains: [testnetBradbury],
+  chains: [bradbury as any],
   wallets: [
     { groupName: "EVM Wallets", wallets: [metaMaskWallet, rabbyWallet, coinbaseWallet, walletConnectWallet] },
   ],
