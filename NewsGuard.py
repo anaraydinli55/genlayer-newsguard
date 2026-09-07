@@ -1,160 +1,138 @@
-# { "Depends": "py-genlayer:15qfivjvy80800rh998pcxmd2m8va1wq2qzqhz850n8ggcr4i9q0" }
+# { "Depends": "py-genlayer:latest" }
 from genlayer import *
 import json
 
 class NewsGuard(gl.Contract):
-    owner: str = ""
-    check_count: str = "0"
-    checks: str = "{}"
+    owner: str
+    check_count: str
+    checks: str
 
     def __init__(self):
-        self.owner = str(gl.message.sender_address)
+        self.owner = ""
         self.check_count = "0"
         self.checks = "{}"
 
-    @gl.public.view
-    def getOwner(self):
-        return self.owner
+    @gl.public.write
+    def init(self) -> None:
+        self.owner = str(gl.message.sender_address)
 
     @gl.public.view
-    def checkNews(self, url, claim, category="general"):
-        """View method: fetches web content and runs LLM analysis. No state change, no consensus needed."""
+    def getOwner(self) -> str:
+        return self.owner
+
+    @gl.public.write
+    def verifyNews(self, url: str, claim: str, category: str = "general") -> str:
+        """Consensus-bound verification: Fetches webpage content and runs LLM fact-checking inside validator consensus."""
         cats = ["politics", "health", "technology", "finance", "sports", "science", "general"]
         if category not in cats:
-            raise ValueError("Invalid category")
-        
-        # Fetch content — failures return UNVERIFIABLE
-        try:
-            response = gl.nondet.web.get(url)
-            if hasattr(response, "body"):
-                content = response.body.decode("utf-8")[:4000]
-            else:
-                content = str(response)[:4000]
-        except Exception:
-            return {
-                "verdict": "UNVERIFIABLE",
-                "confidence": "0",
-                "reasoning": "Failed to fetch URL content",
-                "key_evidence": "",
-                "content_snippet": ""
-            }
-        
-        # LLM analysis — parse failures return UNVERIFIABLE
-        try:
+            raise gl.vm.UserError("Invalid category")
+
+        def evaluate_consensus():
+            try:
+                response = gl.nondet.web.render(url, mode="text")
+                if hasattr(response, "body"):
+                    content = response.body.decode("utf-8")[:4000]
+                else:
+                    content = str(response)[:4000]
+            except Exception:
+                content = ""
+
+            if not content:
+                return json.dumps({
+                    "verdict": "UNVERIFIABLE",
+                    "confidence": 0.0,
+                    "reasoning": "Failed to fetch webpage content",
+                    "key_evidence": ""
+                }, sort_keys=True)
+
             prompt = (
-                "You are an expert fact-checker. Analyze the following webpage content against a specific claim.\n\n"
-                "CLAIM: " + claim + "\n"
-                "CATEGORY: " + category + "\n"
-                "WEBPAGE CONTENT:\n" + content[:2000] + "\n\n"
+                "You are an expert fact-checker. Analyze the following webpage content against the given claim.\n\n"
+                f"CLAIM: {claim}\n"
+                f"CATEGORY: {category}\n"
+                f"WEBPAGE CONTENT:\n{content[:2000]}\n\n"
                 "Respond ONLY with valid JSON in this exact format:\n"
                 '{"verdict":"TRUE"|"MISLEADING"|"FALSE"|"UNVERIFIABLE","confidence":0.0-1.0,"reasoning":"...","key_evidence":"..."}'
             )
             result = gl.nondet.exec_prompt(prompt)
-            
-            if isinstance(result, dict):
-                parsed = result
-            elif isinstance(result, str):
-                cleaned = result.replace("```json", "").replace("```", "").strip()
-                parsed = json.loads(cleaned)
-            else:
-                return {"verdict": "UNVERIFIABLE", "confidence": "0", "reasoning": "Invalid LLM response format", "key_evidence": "", "content_snippet": content[:500]}
-            
+
+            try:
+                if isinstance(result, str):
+                    cleaned = result.replace("```json", "").replace("```", "").strip()
+                    s_idx = cleaned.find("{")
+                    e_idx = cleaned.rfind("}")
+                    parsed = json.loads(cleaned[s_idx:e_idx + 1]) if (s_idx != -1 and e_idx != -1) else {}
+                elif isinstance(result, dict):
+                    parsed = result
+                else:
+                    parsed = {}
+            except Exception:
+                parsed = {}
+
             verdict = str(parsed.get("verdict", "UNVERIFIABLE")).upper().strip()
             if verdict not in ["TRUE", "MISLEADING", "FALSE", "UNVERIFIABLE"]:
                 verdict = "UNVERIFIABLE"
-            
-            confidence = float(parsed.get("confidence", 0.0))
-            if not (0.0 <= confidence <= 1.0):
-                confidence = 0.0
-            
-            return {
-                "verdict": verdict,
-                "confidence": str(confidence),  # STRING! not float
-                "reasoning": str(parsed.get("reasoning", "")),
-                "key_evidence": str(parsed.get("key_evidence", "")),
-                "content_snippet": content[:500]
-            }
-        except Exception:
-            return {
-                "verdict": "UNVERIFIABLE",
-                "confidence": "0",
-                "reasoning": "Failed to parse LLM response",
-                "key_evidence": "",
-                "content_snippet": content[:500]
-            }
 
-    @gl.public.write
-    def verifyNews(self, url, claim, category, verdict, confidence_pct, reasoning, key_evidence):
-        """Write method: validator logic checks meaningful verdict before storing."""
-        # Validator logic: check meaningful verdict
-        v = str(verdict).upper().strip()
-        if v not in ["TRUE", "MISLEADING", "FALSE", "UNVERIFIABLE"]:
-            raise ValueError("Invalid verdict: must be TRUE, MISLEADING, FALSE, or UNVERIFIABLE")
-        
-        # Validator logic: check confidence range
-        conf_pct = int(confidence_pct)
-        if not (0 <= conf_pct <= 100):
-            raise ValueError("Invalid confidence: must be 0-100")
-        
-        # Validator logic: check reasoning quality
-        if not reasoning or len(str(reasoning).strip()) < 10:
-            raise ValueError("Reasoning required: minimum 10 characters")
-        
-        # Validator logic: check key evidence
-        if not key_evidence or len(str(key_evidence).strip()) < 5:
-            raise ValueError("Key evidence required: minimum 5 characters")
-        
-        # Validator logic: check category
-        cats = ["politics", "health", "technology", "finance", "sports", "science", "general"]
-        if category not in cats:
-            raise ValueError("Invalid category")
-        
+            try:
+                confidence = float(parsed.get("confidence", 0.0))
+                if not (0.0 <= confidence <= 1.0):
+                    confidence = 0.0
+            except Exception:
+                confidence = 0.0
+
+            return json.dumps({
+                "verdict": verdict,
+                "confidence": confidence,
+                "reasoning": str(parsed.get("reasoning", "No detailed reasoning")),
+                "key_evidence": str(parsed.get("key_evidence", "No evidence extracted"))
+            }, sort_keys=True)
+
+        consensus_result_str = gl.eq_principle.strict_eq(evaluate_consensus)
+        res = json.loads(consensus_result_str)
+
         count = int(self.check_count) + 1
         self.check_count = str(count)
-        check_id = str(count)
-        
-        conf = conf_pct / 100.0
-        
+        cid = str(count)
+
         c = json.loads(self.checks) if self.checks else {}
-        c[check_id] = {
-            "id": check_id,
+        c[cid] = {
+            "id": cid,
             "creator": str(gl.message.sender_address),
             "url": url,
             "claim": claim,
             "category": category,
-            "verdict": v,
-            "confidence": str(conf),
-            "reasoning": str(reasoning),
-            "key_evidence": str(key_evidence),
+            "verdict": res["verdict"],
+            "confidence": str(res["confidence"]),
+            "reasoning": res["reasoning"],
+            "key_evidence": res["key_evidence"],
             "status": "resolved"
         }
         self.checks = json.dumps(c, sort_keys=True)
-        return check_id
+        gl.emit("NewsVerified", {"check_id": cid, "verdict": res["verdict"]})
+        return cid
 
     @gl.public.view
-    def getCheck(self, check_id):
+    def getCheck(self, check_id: str) -> dict:
         c = json.loads(self.checks) if self.checks else {}
-        cid = str(check_id)
-        if cid not in c:
-            raise ValueError("Check not found")
-        return c[cid]
+        if str(check_id) not in c:
+            raise gl.vm.UserError("Check not found")
+        return c[str(check_id)]
 
     @gl.public.view
-    def getChecksByVerdict(self, verdict):
+    def getAllChecks(self) -> list:
+        return list(json.loads(self.checks).values()) if self.checks else []
+
+    @gl.public.view
+    def getChecksByVerdict(self, verdict: str) -> list:
         c = json.loads(self.checks) if self.checks else {}
         return [x for x in c.values() if x["verdict"] == verdict]
 
     @gl.public.view
-    def getChecksByCategory(self, category):
+    def getChecksByCategory(self, category: str) -> list:
         c = json.loads(self.checks) if self.checks else {}
         return [x for x in c.values() if x["category"] == category]
 
     @gl.public.view
-    def getAllChecks(self):
-        return list(json.loads(self.checks).values()) if self.checks else []
-
-    @gl.public.view
-    def getStats(self):
+    def getStats(self) -> dict:
         c = json.loads(self.checks) if self.checks else {}
         total = len(c)
         true_count = sum(1 for x in c.values() if x["verdict"] == "TRUE")

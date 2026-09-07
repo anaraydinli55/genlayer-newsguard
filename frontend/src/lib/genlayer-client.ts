@@ -1,9 +1,15 @@
 import { createClient } from "genlayer-js";
-import { testnetBradbury } from "genlayer-js/chains";
 
-export const NEWSGUARD_ADDRESS = "0xB2047950bbc68E7BdA744a326608cf62053ED371" as `0x${string}`;
+export const NEWSGUARD_ADDRESS = "0xfd25C0aB8adB63996573Ae37224B40A66d93B5A0" as `0x${string}`;
+
+const bradbury = {
+  id: 1,
+  name: "GenLayer Testnet",
+  nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc-bradbury.genlayer.com"] } },
+} as const;
 
 export const genlayerClient = createClient({
-  chain: testnetBradbury,
+  chain: bradbury as any,
   endpoint: "https://rpc-bradbury.genlayer.com",
 });
