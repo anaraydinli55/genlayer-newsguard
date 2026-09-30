@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle, XCircle, AlertTriangle, HelpCircle, BarChart3 } from "lucide-react";
-import { genlayerClient, NEWSGUARD_ADDRESS } from "@/lib/genlayer-client";
+import { getReadClient, NEWSGUARD_ADDRESS } from "@/lib/genlayer-client";
 import type { Address } from "viem";
 
 interface Stats { total_checks?: string; true?: string; false?: string; misleading?: string; unverifiable?: string; accuracy?: string; }
@@ -13,7 +13,7 @@ export function StatsCards() {
   useEffect(() => {
     async function load() {
       try {
-        const result = await genlayerClient.readContract({
+        const result = await getReadClient().readContract({
           address: NEWSGUARD_ADDRESS as Address,
           functionName: "getStats",
           args: [],

@@ -1,6 +1,51 @@
-# { "Depends": "py-genlayer:latest" }
+# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 from genlayer import *
 import json
+
+VERDICTS = ("TRUE", "MISLEADING", "FALSE", "UNVERIFIABLE")
+CATEGORIES = ("politics", "health", "technology", "finance", "sports", "science", "general")
+UNVERIFIABLE = {"verdict": "UNVERIFIABLE", "confidence": 0, "key_evidence": ""}
+
+
+def _norm(s: str) -> str:
+    return " ".join(str(s).split()).lower()
+
+
+def _fetch_text(url: str) -> str:
+    try:
+        r = gl.nondet.web.render(url, mode="text")
+        text = r.body.decode("utf-8", "ignore") if hasattr(r, "body") else str(r)
+        return " ".join(text.split())[:4000]
+    except Exception:
+        return ""
+
+
+def _analyze(page: str, claim: str, category: str) -> dict:
+    if not page:
+        return dict(UNVERIFIABLE)
+    prompt = (
+        "You are a fact-checker. Compare the claim with the page text.\n"
+        f"CLAIM: {claim}\nCATEGORY: {category}\nPAGE:\n{page[:2000]}\n\n"
+        "Reply ONLY with JSON: "
+        '{"verdict":"TRUE|MISLEADING|FALSE|UNVERIFIABLE","confidence":0-100,'
+        '"key_evidence":"one VERBATIM quote from PAGE, max 200 chars"}'
+    )
+    try:
+        raw = gl.nondet.exec_prompt(prompt)
+        if isinstance(raw, dict):
+            data = raw
+        else:
+            s = str(raw).replace("```json", "").replace("```", "")
+            data = json.loads(s[s.find("{"): s.rfind("}") + 1])
+        verdict = str(data.get("verdict", "")).upper().strip()
+        if verdict not in VERDICTS:
+            return dict(UNVERIFIABLE)
+        conf = max(0, min(100, int(float(data.get("confidence", 0)))))
+        return {"verdict": verdict, "confidence": conf,
+                "key_evidence": str(data.get("key_evidence", ""))[:200]}
+    except Exception:
+        return dict(UNVERIFIABLE)
+
 
 class NewsGuard(gl.Contract):
     owner: str
@@ -22,92 +67,41 @@ class NewsGuard(gl.Contract):
 
     @gl.public.write
     def verifyNews(self, url: str, claim: str, category: str = "general") -> str:
-        """Consensus-bound verification: Fetches webpage content and runs LLM fact-checking inside validator consensus."""
-        cats = ["politics", "health", "technology", "finance", "sports", "science", "general"]
-        if category not in cats:
+        if category not in CATEGORIES:
             raise gl.vm.UserError("Invalid category")
 
-        def evaluate_consensus():
-            try:
-                response = gl.nondet.web.render(url, mode="text")
-                if hasattr(response, "body"):
-                    content = response.body.decode("utf-8")[:4000]
-                else:
-                    content = str(response)[:4000]
-            except Exception:
-                content = ""
+        def leader_fn():
+            return _analyze(_fetch_text(url), claim, category)
 
-            if not content:
-                return json.dumps({
-                    "verdict": "UNVERIFIABLE",
-                    "confidence": 0.0,
-                    "reasoning": "Failed to fetch webpage content",
-                    "key_evidence": ""
-                }, sort_keys=True)
+        def validator_fn(leaders_res: gl.vm.Result) -> bool:
+            if not isinstance(leaders_res, gl.vm.Return):
+                return False
+            leader = leaders_res.calldata
+            if leader.get("verdict") not in VERDICTS:
+                return False
+            page = _fetch_text(url)
+            mine = _analyze(page, claim, category)
+            if mine["verdict"] != leader["verdict"]:
+                return False
+            if leader["verdict"] != "UNVERIFIABLE":
+                ev = _norm(leader.get("key_evidence", ""))
+                if not ev or ev not in _norm(page):
+                    return False
+            return True
 
-            prompt = (
-                "You are an expert fact-checker. Analyze the following webpage content against the given claim.\n\n"
-                f"CLAIM: {claim}\n"
-                f"CATEGORY: {category}\n"
-                f"WEBPAGE CONTENT:\n{content[:2000]}\n\n"
-                "Respond ONLY with valid JSON in this exact format:\n"
-                '{"verdict":"TRUE"|"MISLEADING"|"FALSE"|"UNVERIFIABLE","confidence":0.0-1.0,"reasoning":"...","key_evidence":"..."}'
-            )
-            result = gl.nondet.exec_prompt(prompt)
-
-            try:
-                if isinstance(result, str):
-                    cleaned = result.replace("```json", "").replace("```", "").strip()
-                    s_idx = cleaned.find("{")
-                    e_idx = cleaned.rfind("}")
-                    parsed = json.loads(cleaned[s_idx:e_idx + 1]) if (s_idx != -1 and e_idx != -1) else {}
-                elif isinstance(result, dict):
-                    parsed = result
-                else:
-                    parsed = {}
-            except Exception:
-                parsed = {}
-
-            verdict = str(parsed.get("verdict", "UNVERIFIABLE")).upper().strip()
-            if verdict not in ["TRUE", "MISLEADING", "FALSE", "UNVERIFIABLE"]:
-                verdict = "UNVERIFIABLE"
-
-            try:
-                confidence = float(parsed.get("confidence", 0.0))
-                if not (0.0 <= confidence <= 1.0):
-                    confidence = 0.0
-            except Exception:
-                confidence = 0.0
-
-            return json.dumps({
-                "verdict": verdict,
-                "confidence": confidence,
-                "reasoning": str(parsed.get("reasoning", "No detailed reasoning")),
-                "key_evidence": str(parsed.get("key_evidence", "No evidence extracted"))
-            }, sort_keys=True)
-
-        consensus_result_str = gl.eq_principle.strict_eq(evaluate_consensus)
-        res = json.loads(consensus_result_str)
+        res = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
         count = int(self.check_count) + 1
         self.check_count = str(count)
         cid = str(count)
-
         c = json.loads(self.checks) if self.checks else {}
         c[cid] = {
-            "id": cid,
-            "creator": str(gl.message.sender_address),
-            "url": url,
-            "claim": claim,
-            "category": category,
-            "verdict": res["verdict"],
-            "confidence": str(res["confidence"]),
-            "reasoning": res["reasoning"],
-            "key_evidence": res["key_evidence"],
-            "status": "resolved"
+            "id": cid, "creator": str(gl.message.sender_address),
+            "url": url, "claim": claim, "category": category,
+            "verdict": res["verdict"], "confidence": str(res["confidence"]),
+            "key_evidence": res["key_evidence"], "status": "resolved",
         }
         self.checks = json.dumps(c, sort_keys=True)
-        gl.emit("NewsVerified", {"check_id": cid, "verdict": res["verdict"]})
         return cid
 
     @gl.public.view
@@ -135,15 +129,10 @@ class NewsGuard(gl.Contract):
     def getStats(self) -> dict:
         c = json.loads(self.checks) if self.checks else {}
         total = len(c)
-        true_count = sum(1 for x in c.values() if x["verdict"] == "TRUE")
-        false_count = sum(1 for x in c.values() if x["verdict"] == "FALSE")
-        misleading_count = sum(1 for x in c.values() if x["verdict"] == "MISLEADING")
-        unverifiable_count = sum(1 for x in c.values() if x["verdict"] == "UNVERIFIABLE")
+        cnt = lambda v: str(sum(1 for x in c.values() if x["verdict"] == v))
+        true_n = sum(1 for x in c.values() if x["verdict"] == "TRUE")
         return {
-            "total_checks": str(total),
-            "true": str(true_count),
-            "false": str(false_count),
-            "misleading": str(misleading_count),
-            "unverifiable": str(unverifiable_count),
-            "accuracy": str(round(true_count / total, 2)) if total > 0 else "0"
+            "total_checks": str(total), "true": cnt("TRUE"), "false": cnt("FALSE"),
+            "misleading": cnt("MISLEADING"), "unverifiable": cnt("UNVERIFIABLE"),
+            "accuracy": str(round(true_n / total, 2)) if total > 0 else "0",
         }

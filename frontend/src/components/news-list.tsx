@@ -5,11 +5,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { formatAddress, formatDate, getVerdictColor, getCategoryLabel } from "@/lib/utils";
-import { genlayerClient, NEWSGUARD_ADDRESS } from "@/lib/genlayer-client";
+import { formatAddress, getVerdictColor, getCategoryLabel } from "@/lib/utils";
+import { getReadClient, NEWSGUARD_ADDRESS } from "@/lib/genlayer-client";
 import type { Address } from "viem";
 
-interface Check { id: string; creator: string; url: string; claim: string; category: string; verdict: string; confidence?: number; reasoning?: string; created_at: number; }
+interface Check { id: string; creator: string; url: string; claim: string; category: string; verdict: string; confidence?: number; key_evidence?: string; }
 
 export function NewsList() {
   const [checks, setChecks] = useState<Check[]>([]);
@@ -22,7 +22,7 @@ export function NewsList() {
     async function load() {
       try {
         setLoading(true); setError("");
-        const allChecks = await genlayerClient.readContract({
+        const allChecks = await getReadClient().readContract({
           address: NEWSGUARD_ADDRESS as Address,
           functionName: "getAllChecks",
           args: [],
@@ -31,8 +31,7 @@ export function NewsList() {
           id: String(raw?.id ?? ""), creator: String(raw?.creator ?? ""),
           url: String(raw?.url ?? ""), claim: String(raw?.claim ?? ""),
           category: String(raw?.category ?? ""), verdict: String(raw?.verdict ?? "UNVERIFIABLE"),
-          confidence: parseFloat(raw?.confidence ?? "0"), reasoning: String(raw?.reasoning ?? ""),
-          created_at: Number(raw?.created_at ?? 0),
+          confidence: parseFloat(raw?.confidence ?? "0"), key_evidence: String(raw?.key_evidence ?? ""),
         }));
         setChecks(parsed.reverse());
       } catch (err) { console.error(err); setError("Checks could not be loaded."); setChecks([]); }
@@ -79,10 +78,10 @@ export function NewsList() {
                     <Badge variant="secondary" className="text-xs">{getCategoryLabel(check.category)}</Badge>
                   </div>
                   <p className="text-sm font-medium">{check.claim}</p>
-                  {check.reasoning && <p className="text-xs text-muted-foreground italic">"{check.reasoning}"</p>}
+                  {check.key_evidence && <p className="text-xs text-muted-foreground italic">"{check.key_evidence}"</p>}
                   <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                    <span>By {formatAddress(check.creator)}</span><span>&bull;</span><span>{formatDate(check.created_at)}</span>
-                    {check.confidence !== undefined && check.confidence > 0 && <><span>&bull;</span><span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3" />Confidence: {(check.confidence * 100).toFixed(0)}%</span></>}
+                    <span>By {formatAddress(check.creator)}</span>
+                    {check.confidence !== undefined && check.confidence > 0 && <><span>&bull;</span><span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3" />Confidence: {check.confidence.toFixed(0)}%</span></>}
                   </div>
                 </div>
                 <div className="flex gap-2">

@@ -12,6 +12,12 @@ deploy_newsguard.mjs
 
 # Dependencies
 node_modules/
-package-lock.json
 .vercel
 frontend/.next
+
+frontend/dist/
+__pycache__/
+*.pyc
+contract_address.txt
+frontend/tsconfig.tsbuildinfo
+.venv/
