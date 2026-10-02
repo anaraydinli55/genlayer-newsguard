@@ -21,3 +21,4 @@ __pycache__/
 contract_address.txt
 frontend/tsconfig.tsbuildinfo
 .venv/
+.env*
